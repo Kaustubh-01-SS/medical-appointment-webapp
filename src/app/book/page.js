@@ -149,7 +149,7 @@ export default function BookAppointmentPage() {
                 full_name: 'Dr. Sarah Johnson',
                 specialization: 'Cardiology',
                 experience_years: 10,
-                consultation_fee: 50,
+                consultation_fee: 150,
                 rating: 4.8
               },
               {
@@ -157,7 +157,7 @@ export default function BookAppointmentPage() {
                 full_name: 'Dr. Michael Chen',
                 specialization: 'Neurology',
                 experience_years: 15,
-                consultation_fee: 60,
+                consultation_fee: 160,
                 rating: 4.9
               },
               {
@@ -165,7 +165,7 @@ export default function BookAppointmentPage() {
                 full_name: 'Dr. Emily Davis',
                 specialization: 'Dermatology',
                 experience_years: 8,
-                consultation_fee: 45,
+                consultation_fee: 200,
                 rating: 4.7
               }
             ])
@@ -184,7 +184,7 @@ export default function BookAppointmentPage() {
             full_name: 'Dr. Sarah Johnson',
             specialization: 'Cardiology',
             experience_years: 10,
-            consultation_fee: 50,
+            consultation_fee: 150,
             rating: 4.8
           },
           {
@@ -192,7 +192,7 @@ export default function BookAppointmentPage() {
             full_name: 'Dr. Michael Chen',
             specialization: 'Neurology',
             experience_years: 15,
-            consultation_fee: 60,
+            consultation_fee: 160,
             rating: 4.9
           },
           {
@@ -200,7 +200,7 @@ export default function BookAppointmentPage() {
             full_name: 'Dr. Emily Davis',
             specialization: 'Dermatology',
             experience_years: 8,
-            consultation_fee: 45,
+            consultation_fee: 200,
             rating: 4.7
           }
         ])
@@ -527,7 +527,7 @@ export default function BookAppointmentPage() {
                     <span className="font-semibold">Experience:</span> {selectedDoctor.experience_years} years
                   </p>
                   <p className="text-sm text-gray-700 mb-2">
-                    <span className="font-semibold">Fee:</span> ${selectedDoctor.consultation_fee}
+                    <span className="font-semibold">Fee:</span> Rs.{selectedDoctor.consultation_fee}
                   </p>
                   <p className="text-sm text-gray-700">
                     <span className="font-semibold">Rating:</span> {selectedDoctor.rating ? `⭐ ${selectedDoctor.rating.toFixed(1)}/5` : 'N/A'}
