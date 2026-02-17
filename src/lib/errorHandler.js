@@ -50,6 +50,24 @@ export function getErrorMessage(error) {
  * @param {Error|Object} error - The error object
  */
 export function logError(context, error) {
-  const message = getErrorMessage(error)
-  console.error(`${context}: ${message}`, error)
+  // Ignore abort signals - they are expected during navigation/unmount
+  try {
+    if (!error) {
+      console.error(`${context}: Unknown error`, error)
+      return
+    }
+
+    // Some platforms throw an AbortError with name 'AbortError'
+    if (error.name === 'AbortError' || String(error).includes('signal is aborted')) {
+      // Use info so it's visible in development without marking as an error
+      console.info(`${context}: request aborted`) 
+      return
+    }
+
+    const message = getErrorMessage(error)
+    console.error(`${context}: ${message}`, error)
+  } catch (logErr) {
+    // Fallback safe log
+    console.error(`${context}: error while logging error`, logErr)
+  }
 }

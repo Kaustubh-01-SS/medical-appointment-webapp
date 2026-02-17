@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/client'
 
 export default function CheckEmailContent() {
   const router = useRouter()
+  const supabase = createClient()
   const searchParams = useSearchParams()
   const [status, setStatus] = useState('checking')
   const [message, setMessage] = useState('Checking email confirmation...')
@@ -72,7 +73,7 @@ export default function CheckEmailContent() {
 
         {status === 'pending' && (
           <div className="bg-blue-50 border border-blue-300 text-blue-700 p-4 rounded-lg text-sm">
-            <p className="mb-2">📧 Didn't receive the email?</p>
+            <p className="mb-2">📧 Didn&apos;t receive the email?</p>
             <p>Check your spam folder or try registering again with a different email.</p>
           </div>
         )}

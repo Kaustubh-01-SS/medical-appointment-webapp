@@ -2,36 +2,55 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { supabase } from '@/lib/supabase'
+import { getSupabaseClient } from '@/lib/supabase/client'
 import { getDoctorAppointments, updateAppointmentStatus } from '@/lib/db'
 import UserAvatar from '@/components/UserAvatar'
 
 export default function DoctorDashboardPage() {
+  const supabase = getSupabaseClient()
   const [user, setUser] = useState(null)
   const [appointments, setAppointments] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [stats, setStats] = useState({ total: 0, pending: 0, confirmed: 0, completed: 0 })
+  const [appointmentError, setAppointmentError] = useState('')
 
   useEffect(() => {
     const fetchData = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.user) {
-        setUser(session.user)
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.user) {
+          // Show user immediately - don't block on appointments
+          setUser(session.user)
+          console.log('[DoctorDashboard] User ID:', session.user.id)
 
-        const { data: appts } = await getDoctorAppointments(session.user.id)
-        setAppointments(appts || [])
+          // Fetch appointments in background (don't set loading: true initially)
+          setLoading(true)
+          const { data: appts, error: appointmentsErr } = await getDoctorAppointments(session.user.id)
+          
+          if (appointmentsErr) {
+            console.error('[DoctorDashboard] Appointment fetch error:', appointmentsErr)
+            setAppointmentError('Error loading appointments. Please refresh the page.')
+          } else {
+            console.log('[DoctorDashboard] Appointments fetched:', appts)
+            setAppointments(appts || [])
 
-        // Calculate stats
-        if (appts) {
-          setStats({
-            total: appts.length,
-            pending: appts.filter(a => a.status === 'pending').length,
-            confirmed: appts.filter(a => a.status === 'confirmed').length,
-            completed: appts.filter(a => a.status === 'completed').length
-          })
+            // Calculate stats
+            if (appts) {
+              setStats({
+                total: appts.length,
+                pending: appts.filter(a => a.status === 'pending').length,
+                confirmed: appts.filter(a => a.status === 'confirmed').length,
+                completed: appts.filter(a => a.status === 'completed').length
+              })
+            }
+          }
+          setLoading(false)
         }
+      } catch (err) {
+        console.error('[DoctorDashboard] Error:', err)
+        setAppointmentError('An unexpected error occurred.')
+        setLoading(false)
       }
-      setLoading(false)
     }
 
     fetchData()
@@ -117,7 +136,10 @@ export default function DoctorDashboardPage() {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <UserAvatar />
+          <Link href="/doctor-profile" className="px-4 py-2 text-teal-600 hover:bg-teal-50 rounded-lg transition text-sm font-semibold">
+            My Profile
+          </Link>
+          <UserAvatar dashboardPath="/doctor-dashboard" />
         </div>
       </nav>
 
@@ -152,6 +174,12 @@ export default function DoctorDashboardPage() {
           <div className="mb-4">
             <h2 className="text-xl font-bold text-gray-900">Appointments</h2>
           </div>
+
+          {appointmentError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg mb-4">
+              {appointmentError}
+            </div>
+          )}
 
           {loading ? (
             <div className="flex justify-center items-center py-12">

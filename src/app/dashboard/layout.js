@@ -14,7 +14,7 @@ export default function DashboardLayout({ children }) {
         </div>
 
         {/* Right side avatar */}
-        <UserAvatar />
+        <UserAvatar dashboardPath="/dashboard" />
       </nav>
 
       {/* Page Content */}

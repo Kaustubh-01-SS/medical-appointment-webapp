@@ -1,18 +1,19 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getErrorMessage, logError } from '@/lib/errorHandler'
 
 export default function RegisterPage() {
   const router = useRouter()
+  const supabase = createClient()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [fullName, setFullName] = useState('')
-  const [role, setRole] = useState('doctor')
+  const [role, setRole] = useState('patient')
   const [specialization, setSpecialization] = useState('')
   const [degree, setDegree] = useState('')
   const [experience_years, setExperienceYears] = useState('')
@@ -20,13 +21,25 @@ export default function RegisterPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
+  const [sessionChecked, setSessionChecked] = useState(false)
 
   useEffect(() => {
     const checkSession = async () => {
-      const { data } = await supabase.auth.getSession()
-      if (data.session) {
-        router.replace('/dashboard')
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.user) {
+          // User is already logged in - redirect to dashboard
+          // Get role from JWT metadata (no DB query)
+          const userRole = session.user.user_metadata?.role || 'patient'
+          if (userRole === 'admin') router.replace('/admin-dashboard')
+          else if (userRole === 'doctor') router.replace('/doctor-dashboard')
+          else router.replace('/patient-dashboard')
+          return
+        }
+      } catch (err) {
+        console.error('[Register] Session check error:', err)
       }
+      setSessionChecked(true)
     }
     checkSession()
   }, [router])
@@ -36,7 +49,7 @@ export default function RegisterPage() {
     setError('')
     setSuccess('')
 
-    // Validation
+    // Client-side validation
     if (password !== confirmPassword) {
       setError('Passwords do not match')
       return
@@ -75,85 +88,91 @@ export default function RegisterPage() {
     setLoading(true)
 
     try {
-      // Sign up user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      // Sign up using Supabase directly with role in metadata
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/check-email`,
+          data: {
+            role: role,
+            full_name: fullName,
+          },
         },
       })
 
-      if (authError) {
-        logError('Auth signup error', authError)
-        setError(getErrorMessage(authError))
-        setLoading(false)
-        return
-      }
-
-      if (!authData.user) {
-        setError('Failed to create account. Please try again.')
-        setLoading(false)
-        return
-      }
-
-      console.log('Auth user created:', authData.user.id)
-
-      // Create user profile
-      const { error: profileError } = await supabase
-        .from('users_extended')
-        .insert([
-          {
-            id: authData.user.id,
-            full_name: fullName,
-            role: role,
-          },
-        ])
-
-      if (profileError) {
-        logError('Profile creation error', profileError)
-        setError(`Profile creation failed: ${getErrorMessage(profileError)}`)
-        setLoading(false)
-        return
-      }
-
-      console.log('User profile created')
-
-      // Create doctor profile if registering as doctor
-      if (role === 'doctor') {
-        try {
-          const doctorResponse = await fetch('/api/auth/register-doctor', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              doctor_id: authData.user.id,
-              specialization: specialization,
-              experience_years: experience_years,
-              consultation_fee: consultation_fee,
-            }),
-          })
-
-          const doctorData = await doctorResponse.json()
-
-          if (!doctorResponse.ok) {
-            console.warn('Doctor profile creation failed:', doctorData.error)
-          } else {
-            console.log('Doctor profile created successfully')
-          }
-        } catch (err) {
-          console.warn('Error creating doctor profile:', err)
+      if (error) {
+        // Handle "User already exists" error
+        if (error.message && error.message.toLowerCase().includes('already exists')) {
+          setError('This email is already registered. Please sign in instead.')
+          setTimeout(() => {
+            router.push('/login')
+          }, 1200)
+          setLoading(false)
+          return
         }
+        setError(error.message || 'Failed to create account. Please try again.')
+        setLoading(false)
+        return
       }
 
-      setSuccess('✓ Registration successful! Check your email for confirmation.')
-      setTimeout(() => {
-        router.replace(`/check-email?email=${encodeURIComponent(email)}`)
-      }, 2000)
+      // Success!
+      const createdUserId = data.user?.id
+      if (!createdUserId) {
+        setError('Account created, but user ID was not returned. Please try signing in.')
+        setLoading(false)
+        return
+      }
+
+      // Create profile in users_extended (crucial for dashboard and avatar)
+      try {
+        await supabase
+          .from('users_extended')
+          .insert({
+            id: createdUserId,
+            full_name: fullName,
+            role: role
+          })
+      } catch (profileErr) {
+        console.warn('[Register] Profile creation error (non-blocking):', profileErr)
+      }
+
+      // Create doctor profile in background if registering as doctor (non-blocking)
+      if (role === 'doctor') {
+        ;(async () => {
+          try {
+            const { error: doctorError } = await supabase
+              .from('doctors')
+              .insert({
+                id: createdUserId,
+                full_name: fullName,
+                specialization,
+                experience_years: experience_years ? parseInt(experience_years, 10) : null,
+                consultation_fee: consultation_fee ? parseFloat(consultation_fee) : null,
+              })
+
+            if (doctorError) {
+              console.warn('[Register] Doctor profile creation failed:', doctorError)
+            } else {
+              console.log('[Register] Doctor profile created')
+            }
+          } catch (err) {
+            console.warn('[Register] Doctor profile creation error:', err)
+          }
+        })()
+      }
+
+      setSuccess('✓ Registration successful! Redirecting...')
+
+      // Determine redirect URL
+      let redirectTo = '/patient-dashboard'
+      if (role === 'admin') redirectTo = '/admin-dashboard'
+      else if (role === 'doctor') redirectTo = '/doctor-dashboard'
+
+      // Instant redirect (no delay) - middleware will confirm auth
+      router.replace(redirectTo)
     } catch (err) {
-      logError('Unexpected signup error', err)
-      setError(`Unexpected error: ${getErrorMessage(err)}`)
+      console.error('[Register] Error:', err)
+      setError(getErrorMessage(err) || 'An unexpected error occurred')
     } finally {
       setLoading(false)
     }
@@ -170,8 +189,16 @@ export default function RegisterPage() {
           <div className="w-12 h-12 bg-linear-to-br from-teal-500 to-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <span className="text-white text-xl">♥</span>
           </div>
-          <h1 className="text-2xl font-bold mb-2 text-teal-700">Doctor Registration</h1>
-          <p className="text-gray-700 text-sm">Register as a doctor to start seeing patients</p>
+          <h1 className="text-2xl font-bold mb-2 text-teal-700">
+            {role === 'patient' ? 'Patient Registration' : role === 'doctor' ? 'Doctor Registration' : 'Admin Registration'}
+          </h1>
+          <p className="text-gray-700 text-sm">
+            {role === 'patient' 
+              ? 'Register to book appointments with top doctors' 
+              : role === 'doctor'
+              ? 'Register as a doctor to start seeing patients'
+              : 'Register as an administrator'}
+          </p>
         </div>
 
         {error && (
@@ -194,6 +221,7 @@ export default function RegisterPage() {
               onChange={(e) => setRole(e.target.value)}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 text-gray-900 placeholder-gray-900"
             >
+              <option value="patient">Patient</option>
               <option value="doctor">Doctor</option>
               <option value="admin">Admin</option>
             </select>
