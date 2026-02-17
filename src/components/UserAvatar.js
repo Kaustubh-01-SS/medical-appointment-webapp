@@ -1,31 +1,46 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { getSupabaseClient } from '@/lib/supabase/client'
 import { logError } from '@/lib/errorHandler'
 import { useRouter } from 'next/navigation'
 
-export default function UserAvatar() {
+export default function UserAvatar({ dashboardPath = '/dashboard' }) {
   const [name, setName] = useState('')
+  const [role, setRole] = useState('')
   const [open, setOpen] = useState(false)
+  const [roleLoaded, setRoleLoaded] = useState(false)
   const router = useRouter()
+  const supabase = getSupabaseClient()
 
   useEffect(() => {
     const fetchUser = async () => {
-      const { data: auth } = await supabase.auth.getUser()
-      if (!auth.user) return
+      try {
+        const { data: auth } = await supabase.auth.getUser()
+        if (!auth?.user) return
 
-      // Fetch extended profile (users_extended) for full name
-      const { data: profileData, error: profileError } = await supabase
-        .from('users_extended')
-        .select('full_name')
-        .eq('id', auth.user.id)
-        .single()
-      if (profileError) {
-        logError('UserAvatar.fetchProfile', profileError)
-        setName(auth.user.email?.split('@')[0] || 'User')
-      } else {
-        setName(profileData?.full_name || auth.user.email?.split('@')[0] || 'User')
+        // Fetch extended profile (users_extended) for full name and role
+        const { data: profileData, error: profileError } = await supabase
+          .from('users_extended')
+          .select('full_name, role')
+          .eq('id', auth.user.id)
+          .single()
+        
+        if (profileError) {
+          logError('UserAvatar.fetchProfile', profileError)
+          setName(auth.user.email?.split('@')[0] || 'User')
+          setRole('')
+        } else if (profileData) {
+          setName(profileData.full_name || auth.user.email?.split('@')[0] || 'User')
+          const fetchedRole = profileData.role || ''
+          setRole(fetchedRole)
+          console.log('[UserAvatar] Role loaded:', fetchedRole) // Debug log
+        }
+      } catch (err) {
+        logError('UserAvatar.fetchProfile - unexpected error', err)
+        setRole('')
+      } finally {
+        setRoleLoaded(true)
       }
     }
 
@@ -40,7 +55,7 @@ export default function UserAvatar() {
         logError('UserAvatar.logout', error)
         return
       }
-      router.replace('/login')
+      router.replace('/')
     } catch (err) {
       logError('UserAvatar.logout - unexpected error', err)
     }
@@ -69,8 +84,22 @@ export default function UserAvatar() {
       {/* Dropdown */}
       {open && (
         <div className="absolute right-0 mt-2 w-40 bg-gradient-to-br from-teal-600 to-blue-600 rounded-lg shadow-lg overflow-hidden z-50">
+          {roleLoaded && role === 'doctor' && (
+            <button
+              onClick={() => {
+                setOpen(false)
+                router.push('/doctor-profile')
+              }}
+              className="w-full text-left px-4 py-2 text-sm text-white hover:bg-white/10 transition"
+            >
+              Profile
+            </button>
+          )}
           <button
-            onClick={() => router.push('/doctor-dashboard')}
+            onClick={() => {
+              setOpen(false)
+              router.push(dashboardPath)
+            }}
             className="w-full text-left px-4 py-2 text-sm text-white hover:bg-white/10 transition"
           >
             Dashboard

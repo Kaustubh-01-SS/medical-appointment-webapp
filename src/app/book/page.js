@@ -2,13 +2,16 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { getSupabaseClient } from '@/lib/supabase/client'
 import { logError, getErrorMessage } from '@/lib/errorHandler'
-import { getDoctors } from '@/lib/db'
+import { getDoctors, getSpecializations, getDoctorsBySpecialization } from '@/lib/db'
 
 export default function BookAppointmentPage() {
   const router = useRouter()
+  const supabase = getSupabaseClient()
   const [doctors, setDoctors] = useState([])
+  const [specializations, setSpecializations] = useState([])
+  const [selectedSpecialization, setSelectedSpecialization] = useState('')
   const [selectedDoctorId, setSelectedDoctorId] = useState('')
   const [selectedDate, setSelectedDate] = useState('')
   const [selectedTime, setSelectedTime] = useState('')
@@ -16,10 +19,17 @@ export default function BookAppointmentPage() {
   const [reason, setReason] = useState('')
   const [consultationMode, setConsultationMode] = useState('in-person')
   const [loading, setLoading] = useState(false)
+  const [loadingSpecializations, setLoadingSpecializations] = useState(true)
+  const [loadingDoctors, setLoadingDoctors] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
-  // Guest info
+  // user info (must be logged in)
+  const [userName, setUserName] = useState('')
+  const [userEmail, setUserEmail] = useState('')
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+
+  // Guest info (when not authenticated)
   const [guestName, setGuestName] = useState('')
   const [guestEmail, setGuestEmail] = useState('')
   const [guestPhone, setGuestPhone] = useState('')
@@ -30,6 +40,19 @@ export default function BookAppointmentPage() {
 
   // Initialize date constraints on component mount
   useEffect(() => {
+    // Load session if present; guests are allowed (no redirect)
+    const ensureSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user) {
+        setIsAuthenticated(true)
+        setUserName(session.user.user_metadata?.full_name || '')
+        setUserEmail(session.user.email || '')
+      } else {
+        setIsAuthenticated(false)
+      }
+    }
+    ensureSession()
+
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
     const tomorrowStr = tomorrow.toISOString().split('T')[0]
@@ -41,50 +64,118 @@ export default function BookAppointmentPage() {
     setMaxDate(maxDateStr)
   }, [])
 
+  // Load specializations and doctors in separate effects
+  useEffect(() => {
+    const loadSpecializations = async () => {
+      try {
+        setLoadingSpecializations(true)
+        
+        // Fetch specializations from database
+        const { data: specs, error: specsError } = await getSpecializations()
+
+        if (specsError) {
+          // If the fetch was aborted, ignore the error (navigation/unmount)
+          if (specsError?.name === 'AbortError' || String(specsError).includes('signal is aborted')) {
+            return
+          }
+          logError('Failed to load specializations from database', specsError)
+          // Use fallback specializations
+          setSpecializations(['Cardiology', 'Neurology', 'Dermatology', 'General Practice', 'Orthopedics'])
+        } else if (specs && specs.length > 0) {
+          setSpecializations(specs)
+        } else {
+          // Fallback specializations
+          setSpecializations(['Cardiology', 'Neurology', 'Dermatology', 'General Practice', 'Orthopedics'])
+        }
+      } catch (err) {
+        // Ignore abort errors
+        if (err?.name === 'AbortError' || String(err).includes('signal is aborted')) {
+          return
+        }
+        console.warn('Using fallback specializations:', getErrorMessage(err))
+        setSpecializations(['Cardiology', 'Neurology', 'Dermatology', 'General Practice', 'Orthopedics'])
+      } finally {
+        setLoadingSpecializations(false)
+      }
+    }
+
+    loadSpecializations()
+  }, [])
+
   useEffect(() => {
     const loadDoctors = async () => {
       try {
-        // Use the dedicated db utility which has proper RLS setup
-        const { data, error: fetchError } = await getDoctors()
-        
-        if (fetchError) {
-          logError('Failed to load doctors from database', fetchError)
-          throw new Error('Unable to load doctor list')
-        }
-        
-        if (data && data.length > 0) {
-          setDoctors(data)
-        } else {
-          // Fallback: use mock doctors
-          console.warn('No doctors found in database, using mock data')
-          setDoctors([
-            {
-              id: 'mock-1',
-              full_name: 'Dr. Sarah Johnson',
-              specialization: 'Cardiology',
-              experience_years: 10,
-              consultation_fee: 50,
-              rating: 4.8
-            },
-            {
-              id: 'mock-2',
-              full_name: 'Dr. Michael Chen',
-              specialization: 'Neurology',
-              experience_years: 15,
-              consultation_fee: 60,
-              rating: 4.9
-            },
-            {
-              id: 'mock-3',
-              full_name: 'Dr. Emily Davis',
-              specialization: 'Dermatology',
-              experience_years: 8,
-              consultation_fee: 45,
-              rating: 4.7
+        setLoadingDoctors(true)
+
+        // If a specialization is selected, fetch doctors for that specialization
+        if (selectedSpecialization) {
+          const { data, error: fetchError } = await getDoctorsBySpecialization(selectedSpecialization)
+
+          if (fetchError) {
+            // If the fetch was aborted, ignore the error (navigation/unmount)
+            if (fetchError?.name === 'AbortError' || String(fetchError).includes('signal is aborted')) {
+              return
             }
-          ])
+            logError('Failed to load doctors from database', fetchError)
+            throw new Error('Unable to load doctor list')
+          }
+
+          if (data && data.length > 0) {
+            setDoctors(data)
+          } else {
+            setDoctors([])
+          }
+        } else {
+          // Use the dedicated db utility which has proper RLS setup
+          const { data, error: fetchError } = await getDoctors()
+
+          if (fetchError) {
+            // If the fetch was aborted, ignore the error (navigation/unmount)
+            if (fetchError?.name === 'AbortError' || String(fetchError).includes('signal is aborted')) {
+              return
+            }
+            logError('Failed to load doctors from database', fetchError)
+            throw new Error('Unable to load doctor list')
+          }
+
+          if (data && data.length > 0) {
+            setDoctors(data)
+          } else {
+            // Fallback: use mock doctors
+            console.warn('No doctors found in database, using mock data')
+            setDoctors([
+              {
+                id: 'mock-1',
+                full_name: 'Dr. Sarah Johnson',
+                specialization: 'Cardiology',
+                experience_years: 10,
+                consultation_fee: 50,
+                rating: 4.8
+              },
+              {
+                id: 'mock-2',
+                full_name: 'Dr. Michael Chen',
+                specialization: 'Neurology',
+                experience_years: 15,
+                consultation_fee: 60,
+                rating: 4.9
+              },
+              {
+                id: 'mock-3',
+                full_name: 'Dr. Emily Davis',
+                specialization: 'Dermatology',
+                experience_years: 8,
+                consultation_fee: 45,
+                rating: 4.7
+              }
+            ])
+          }
         }
       } catch (err) {
+        // Ignore abort errors (component unmounted / route change)
+        if (err?.name === 'AbortError' || String(err).includes('signal is aborted')) {
+          return
+        }
         // Use mock doctors as fallback
         console.warn('Using fallback mock doctors:', getErrorMessage(err))
         setDoctors([
@@ -113,10 +204,13 @@ export default function BookAppointmentPage() {
             rating: 4.7
           }
         ])
+      } finally {
+        setLoadingDoctors(false)
       }
     }
+
     loadDoctors()
-  }, [])
+  }, [selectedSpecialization])
 
   const handleBookAppointment = async (e) => {
     e.preventDefault()
@@ -128,41 +222,74 @@ export default function BookAppointmentPage() {
       return
     }
 
-    if (!guestName || !guestEmail || !guestPhone) {
-      setError('Please fill in all your contact information')
-      return
-    }
-
     setLoading(true)
 
     try {
-      // Combine date and time: selectedDate is YYYY-MM-DD, selectedTime is HH:MM
-      const appointmentDateTime = new Date(`${selectedDate}T${selectedTime}:00`)
+      const { data: { session } } = await supabase.auth.getSession()
 
-      if (isNaN(appointmentDateTime.getTime())) {
-        throw new Error('Invalid date/time combination')
-      }
-
-      const { error: bookError } = await supabase
-        .from('appointments')
-        .insert([
-          {
-            doctor_id: selectedDoctorId,
-            appointment_date: appointmentDateTime.toISOString(),
-            status: 'scheduled',
-            notes: `Guest Booking\nName: ${guestName}\nEmail: ${guestEmail}\nPhone: ${guestPhone}\nReason: ${reason}\nMode: ${consultationMode}`,
-            patient_id: null,
+      if (session?.user) {
+        // Authenticated booking
+        const patientId = session.user.id
+        const response = await fetch('/api/appointments', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
           },
-        ])
+          body: JSON.stringify({
+            patient_id: patientId,
+            doctor_id: selectedDoctorId,
+            appointment_date: `${selectedDate}T${selectedTime}:00Z`,
+            notes: reason,
+            consultation_mode: consultationMode,
+          }),
+        })
 
-      if (bookError) {
-        throw bookError
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to book appointment')
+        }
+
+        setSuccess('✓ Appointment booked successfully!')
+        setTimeout(() => {
+          router.push('/')
+        }, 1500)
+      } else {
+        // Guest booking flow
+        if (!guestName || !guestEmail || !guestPhone) {
+          setError('Please fill in all your contact information')
+          setLoading(false)
+          return
+        }
+
+        const response = await fetch('/api/appointments/guest', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            guestName,
+            guestEmail,
+            guestPhone,
+            doctor_id: selectedDoctorId,
+            appointment_date: selectedDate,
+            appointment_time: selectedTime,
+            reason,
+            consultation_mode: consultationMode,
+          }),
+        })
+
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to book appointment')
+        }
+
+        setSuccess('✓ Appointment booked successfully! Confirmation sent to your email.')
+        setTimeout(() => {
+          router.push('/')
+        }, 1500)
       }
-
-      setSuccess('✓ Appointment booked successfully! Confirmation sent to your email.')
-      setTimeout(() => {
-        router.push('/')
-      }, 2000)
     } catch (err) {
       logError('Booking error', err)
       setError(getErrorMessage(err) || 'Failed to book appointment. Please try again.')
@@ -178,7 +305,7 @@ export default function BookAppointmentPage() {
     '17:00', '17:30'
   ]
 
-  const selectedDoctor = doctors.find(d => d.id === selectedDoctorId)
+  const selectedDoctor = doctors.find((d) => d.id === selectedDoctorId)
 
   return (
     <div className="min-h-screen bg-linear-to-br from-blue-50 to-teal-50">
@@ -216,41 +343,67 @@ export default function BookAppointmentPage() {
             <div className="space-y-6">
               <h3 className="text-xl font-bold text-gray-900 mb-6">Your Information</h3>
 
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-gray-700">Full Name *</label>
-                <input
-                  type="text"
-                  value={guestName}
-                  onChange={(e) => setGuestName(e.target.value)}
-                  placeholder="John Doe"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200"
-                  required
-                />
-              </div>
+              {isAuthenticated ? (
+                <>
+                  <div>
+                    <label className="block text-sm font-semibold mb-2 text-gray-700">Full Name</label>
+                    <input
+                      type="text"
+                      value={userName}
+                      readOnly
+                      className="w-full px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 text-gray-700"
+                    />
+                  </div>
 
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-gray-700">Email *</label>
-                <input
-                  type="email"
-                  value={guestEmail}
-                  onChange={(e) => setGuestEmail(e.target.value)}
-                  placeholder="john@example.com"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200"
-                  required
-                />
-              </div>
+                  <div>
+                    <label className="block text-sm font-semibold mb-2 text-gray-700">Email</label>
+                    <input
+                      type="email"
+                      value={userEmail}
+                      readOnly
+                      className="w-full px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 text-gray-700"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-sm font-semibold mb-2 text-gray-700">Full Name *</label>
+                    <input
+                      type="text"
+                      value={guestName}
+                      onChange={(e) => setGuestName(e.target.value)}
+                      placeholder="John Doe"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200  text-gray-900"
+                      required
+                    />
+                  </div>
 
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-gray-700">Phone *</label>
-                <input
-                  type="tel"
-                  value={guestPhone}
-                  onChange={(e) => setGuestPhone(e.target.value)}
-                  placeholder="+1 (555) 000-0000"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200"
-                  required
-                />
-              </div>
+                  <div>
+                    <label className="block text-sm font-semibold mb-2 text-gray-700">Email *</label>
+                    <input
+                      type="email"
+                      value={guestEmail}
+                      onChange={(e) => setGuestEmail(e.target.value)}
+                      placeholder="john@example.com"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200  text-gray-900"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold mb-2 text-gray-700">Phone *</label>
+                    <input
+                      type="tel"
+                      value={guestPhone}
+                      onChange={(e) => setGuestPhone(e.target.value)}
+                      placeholder="+1 (555) 000-0000"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200 text-gray-900"
+                      required
+                    />
+                  </div>
+                </>
+              )}
 
               <div>
                 <label className="block text-sm font-semibold mb-2 text-gray-700">Reason for Visit *</label>
@@ -297,8 +450,42 @@ export default function BookAppointmentPage() {
             <div className="space-y-6">
               <h3 className="text-xl font-bold text-gray-900 mb-6">Appointment Details</h3>
 
+              {/* Specialization filter */}
               <div>
-                <label htmlFor="doctor-select" className="block text-sm font-semibold mb-2 text-gray-700">Select Doctor *</label>
+                <label htmlFor="specialization-select" className="block text-sm font-semibold mb-2 text-gray-700">
+                  Select Specialization *
+                </label>
+                <select
+                  id="specialization-select"
+                  value={selectedSpecialization}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    setSelectedSpecialization(value)
+                    // Reset doctor & time/date when specialization changes
+                    setSelectedDoctorId('')
+                    setSelectedDate('')
+                    setSelectedTime('')
+                    setShowTimeSlots(false)
+                  }}
+                  disabled={loadingSpecializations}
+                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200 text-gray-900 bg-white cursor-pointer disabled:bg-gray-100 disabled:text-gray-500"
+                  required
+                >
+                  <option value="">
+                    {loadingSpecializations ? 'Loading specializations...' : '-- Select specialization --'}
+                  </option>
+                  {specializations.map((spec) => (
+                    <option key={spec} value={spec}>
+                      {spec}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="doctor-select" className="block text-sm font-semibold mb-2 text-gray-700">
+                  Select Doctor *
+                </label>
                 <select
                   id="doctor-select"
                   value={selectedDoctorId}
@@ -307,19 +494,26 @@ export default function BookAppointmentPage() {
                     setSelectedDate('')
                     setSelectedTime('')
                   }}
-                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200 text-gray-900 bg-white cursor-pointer"
+                  disabled={loadingDoctors || !selectedSpecialization}
+                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200 text-gray-900 bg-white cursor-pointer disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed"
                   required
                 >
-                  <option value="">-- Select a doctor --</option>
+                  <option value="">
+                    {!selectedSpecialization 
+                      ? '-- Select specialization first --'
+                      : loadingDoctors
+                      ? 'Loading doctors...'
+                      : '-- Select a doctor --'}
+                  </option>
                   {doctors.length > 0 ? (
                     doctors.map((doctor) => (
                       <option key={doctor.id} value={doctor.id}>
                         Dr. {doctor.full_name} - {doctor.specialization}
                       </option>
                     ))
-                  ) : (
-                    <option disabled>Loading doctors...</option>
-                  )}
+                  ) : selectedSpecialization && !loadingDoctors ? (
+                    <option disabled>No doctors available for this specialization</option>
+                  ) : null}
                 </select>
               </div>
 
@@ -366,7 +560,12 @@ export default function BookAppointmentPage() {
                   type="button"
                   onClick={() => setShowTimeSlots((s) => !s)}
                   disabled={!selectedDate}
-                  className="px-4 py-2 rounded-md border-2 font-semibold text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={`px-4 py-2 rounded-md font-semibold text-sm transition
+                    ${
+                      selectedDate
+                        ? 'bg-linear-to-r from-teal-600 to-blue-600 text-white shadow-sm hover:opacity-90'
+                        : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                    }`}
                 >
                   {showTimeSlots ? 'Hide Time Slots' : 'Select Time'}
                 </button>
@@ -419,9 +618,8 @@ export default function BookAppointmentPage() {
                 !selectedDoctorId ||
                 !selectedDate ||
                 !selectedTime ||
-                !guestName ||
-                !guestEmail ||
-                !guestPhone ||
+                !userName ||
+                !userEmail ||
                 !reason
               }
               className="flex-1 px-6 py-3 bg-linear-to-r from-teal-600 to-blue-600 text-white rounded-lg font-semibold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition"

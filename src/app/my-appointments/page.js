@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/client'
 import { getPatientAppointments, cancelAppointment } from '@/lib/db'
 
 export default function MyAppointmentsPage() {
+  const supabase = createClient()
   const [user, setUser] = useState(null)
   const [appointments, setAppointments] = useState([])
   const [loading, setLoading] = useState(true)

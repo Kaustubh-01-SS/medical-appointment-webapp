@@ -1,35 +1,23 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { getSupabaseClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 export default function LoginPage() {
   const router = useRouter()
+  const supabase = getSupabaseClient()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const [loginType, setLoginType] = useState('doctor')
+  const [loginType, setLoginType] = useState('patient')
 
-  useEffect(() => {
-    const checkSession = async () => {
-      const { data } = await supabase.auth.getSession()
-      if (data.session) {
-        const { data: profile } = await supabase
-          .from('users_extended')
-          .select('role')
-          .eq('id', data.session.user.id)
-          .single()
-        const role = profile?.role || 'doctor'
-        router.replace(role === 'admin' ? '/admin-dashboard' : '/doctor-dashboard')
-      }
-    }
-    checkSession()
-  }, [router])
+  // Middleware handles redirects - no client-side session check needed
+  // This prevents double checking and keeps login fast
 
   const handleLogin = async (e) => {
     e.preventDefault()
@@ -38,21 +26,35 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
       if (error) {
-        setError(error.message)
-      } else {
-        setSuccess('✓ Login successful! Redirecting...')
-        const redirectTo = loginType === 'admin' ? '/admin-dashboard' : '/doctor-dashboard'
-        setTimeout(() => {
-          router.replace(redirectTo)
-        }, 300)
+        setError('Invalid email or password')
+        setLoading(false)
+        return
       }
+
+      // Get role from user metadata (stored during signup - instant, no DB call)
+      const userRole = data.user?.user_metadata?.role || 'patient'
+
+      // Success! Redirect based on actual role (no validation that blocks login)
+      setSuccess('✓ Login successful! Redirecting...')
+      
+      // Determine redirect URL based on role
+      let redirectTo = '/patient-dashboard'
+      if (userRole === 'admin') {
+        redirectTo = '/admin-dashboard'
+      } else if (userRole === 'doctor') {
+        redirectTo = '/doctor-dashboard'
+      }
+
+      // Instant redirect (no delay)
+      router.replace(redirectTo)
     } catch (err) {
+      console.error('[Login] Error:', err)
       setError('An unexpected error occurred')
     } finally {
       setLoading(false)
@@ -94,6 +96,17 @@ export default function LoginPage() {
             <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
               <button
                 type="button"
+                onClick={() => setLoginType('patient')}
+                className={`flex-1 py-2 rounded font-semibold transition ${
+                  loginType === 'patient'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                Patient
+              </button>
+              <button
+                type="button"
                 onClick={() => setLoginType('doctor')}
                 className={`flex-1 py-2 rounded font-semibold transition ${
                   loginType === 'doctor'
@@ -124,7 +137,7 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 text-gray-900"
               required
             />
           </div>
@@ -170,7 +183,7 @@ export default function LoginPage() {
         </form>
 
         <div className="mt-6 text-center text-gray-600 text-sm">
-          Don't have an account?{' '}
+          Don&apos;t have an account?{' '}
           <Link href="/register" className="text-teal-600 hover:text-teal-700 font-semibold">
             Register here
           </Link>

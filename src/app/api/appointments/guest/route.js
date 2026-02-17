@@ -12,70 +12,66 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey)
 export async function POST(request) {
   try {
     const body = await request.json()
-    const { patient_name, patient_email, patient_phone, doctor_id, appointment_date, notes } = body
+    const { guestName, guestEmail, guestPhone, doctor_id, appointment_date, appointment_time, reason, consultation_mode } = body
 
     // Validate input
-    if (!patient_name || !patient_email || !doctor_id || !appointment_date) {
+    if (!guestName || !guestEmail || !guestPhone || !doctor_id || !appointment_date || !appointment_time || !reason) {
       return Response.json(
-        { error: 'Missing required fields: patient_name, patient_email, doctor_id, appointment_date' },
+        { error: 'Missing required fields' },
         { status: 400 }
       )
     }
 
     // Validate email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(patient_email)) {
+    if (!emailRegex.test(guestEmail)) {
       return Response.json({ error: 'Invalid email format' }, { status: 400 })
     }
 
-    // Parse appointment date
-    const appointmentTime = new Date(appointment_date)
-    if (isNaN(appointmentTime.getTime())) {
-      return Response.json({ error: 'Invalid appointment_date format' }, { status: 400 })
-    }
-
-    // Check for conflicts (30-minute appointment slots)
-    const appointmentEnd = new Date(appointmentTime.getTime() + 30 * 60000)
-
+    // Check for conflicts at this time slot
     const { data: conflicts, error: conflictError } = await supabase
       .from('appointments')
       .select('id')
       .eq('doctor_id', doctor_id)
-      .eq('status', 'scheduled')
-      .gte('appointment_date', appointmentTime.toISOString())
-      .lt('appointment_date', appointmentEnd.toISOString())
+      .eq('appointment_date', appointment_date)
+      .eq('appointment_time', appointment_time)
+      .in('status', ['pending', 'confirmed', 'scheduled'])
 
     if (conflictError) {
-      return Response.json({ error: conflictError.message }, { status: 500 })
+      console.error('Conflict check error:', conflictError)
+      return Response.json({ error: 'Failed to check time slot availability' }, { status: 500 })
     }
 
     if (conflicts && conflicts.length > 0) {
       return Response.json(
-        { error: 'Doctor is not available at this time' },
+        { error: 'This time slot is no longer available. Please choose another time.' },
         { status: 409 }
       )
     }
 
-    // Create appointment with guest booking
+    // Create appointment with guest booking using service role (bypasses RLS)
     const { data: appointment, error: appointmentError } = await supabase
       .from('appointments')
       .insert([
         {
-          doctor_id,
-          appointment_date: appointmentTime.toISOString(),
-          status: 'scheduled',
           patient_id: null, // NULL for guest bookings
-          notes: `GUEST BOOKING\nName: ${patient_name}\nEmail: ${patient_email}\nPhone: ${patient_phone}${notes ? `\nAdditional Notes: ${notes}` : ''}`,
+          doctor_id,
+          appointment_date,
+          appointment_time,
+          reason_for_visit: reason,
+          status: 'pending',
+          consultation_mode: consultation_mode || 'in-person',
+          notes: `Guest Booking\nName: ${guestName}\nEmail: ${guestEmail}\nPhone: ${guestPhone}\nReason: ${reason}`,
         },
       ])
       .select()
 
     if (appointmentError) {
-      return Response.json({ error: appointmentError.message }, { status: 400 })
+      console.error('Appointment insert error:', appointmentError)
+      return Response.json({ error: appointmentError.message || 'Failed to book appointment' }, { status: 400 })
     }
 
     // TODO: Send confirmation email to guest
-    // For now, just return success
 
     return Response.json(
       {
@@ -87,6 +83,6 @@ export async function POST(request) {
     )
   } catch (error) {
     console.error('Guest appointment booking error:', error)
-    return Response.json({ error: error.message }, { status: 500 })
+    return Response.json({ error: error.message || 'Internal server error' }, { status: 500 })
   }
 }

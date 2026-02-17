@@ -4,10 +4,79 @@ import { supabase } from './supabase'
 
 export async function getDoctors() {
   try {
-    // Query doctors first
+    // Query doctors with all info in one table (no join needed)
     const { data: doctorsData, error: doctorsError } = await supabase
       .from('doctors')
       .select('*')
+
+    if (doctorsError) {
+      return { data: null, error: doctorsError }
+    }
+
+    return { data: doctorsData || [], error: null }
+  } catch (err) {
+    return { data: null, error: err }
+  }
+}
+
+export async function getDoctorById(doctorId) {
+  try {
+    // Query doctor - all info is in doctors table now
+    const { data: doctorData, error: doctorError } = await supabase
+      .from('doctors')
+      .select('*')
+      .eq('id', doctorId)
+      .single()
+
+    if (doctorError) {
+      return { data: null, error: doctorError }
+    }
+
+    return { data: doctorData, error: null }
+  } catch (err) {
+    return { data: null, error: err }
+  }
+}
+
+
+export async function getSpecializations() {
+  try {
+    // Fetch all distinct specializations from doctors table
+    const { data: doctorsData, error } = await supabase
+      .from('doctors')
+      .select('specialization')
+      .eq('is_active', true)
+
+    if (error) {
+      return { data: null, error }
+    }
+
+    if (!doctorsData || doctorsData.length === 0) {
+      return { data: [], error: null }
+    }
+
+    // Extract unique specializations and sort them
+    const specializations = Array.from(
+      new Set(doctorsData.map(d => d.specialization).filter(Boolean))
+    ).sort()
+
+    return { data: specializations, error: null }
+  } catch (err) {
+    return { data: null, error: err }
+  }
+}
+
+export async function getDoctorsBySpecialization(specialization) {
+  try {
+    if (!specialization) {
+      return getDoctors()
+    }
+
+    // Query doctors filtered by specialization
+    const { data: doctorsData, error: doctorsError } = await supabase
+      .from('doctors')
+      .select('*')
+      .eq('specialization', specialization)
       .eq('is_active', true)
 
     if (doctorsError) {
@@ -40,44 +109,6 @@ export async function getDoctors() {
     })
 
     return { data: enrichedDoctors, error: null }
-  } catch (err) {
-    return { data: null, error: err }
-  }
-}
-
-export async function getDoctorById(doctorId) {
-  try {
-    // Query doctor first
-    const { data: doctorData, error: doctorError } = await supabase
-      .from('doctors')
-      .select('*')
-      .eq('id', doctorId)
-      .single()
-
-    if (doctorError) {
-      return { data: null, error: doctorError }
-    }
-
-    if (!doctorData) {
-      return { data: null, error: { message: 'Doctor not found' } }
-    }
-
-    // Fetch doctor info from users_extended table
-    const { data: userExtData } = await supabase
-      .from('users_extended')
-      .select('id, full_name, phone')
-      .eq('id', doctorId)
-      .single()
-
-    // Merge the data
-    return {
-      data: {
-        ...doctorData,
-        full_name: userExtData?.full_name || 'Dr. Unknown',
-        phone: userExtData?.phone
-      },
-      error: null
-    }
   } catch (err) {
     return { data: null, error: err }
   }
@@ -201,19 +232,30 @@ export async function getPatientAppointments(patientId) {
 }
 
 export async function getDoctorAppointments(doctorId) {
-  const { data, error } = await supabase
-    .from('appointments')
-    .select(`
-      *,
-      patient:patient_id(
+  try {
+    const { data, error } = await supabase
+      .from('appointments')
+      .select(`
         *,
-        users_extended:id(full_name, phone)
-      )
-    `)
-    .eq('doctor_id', doctorId)
-    .order('appointment_date', { ascending: true })
+        patient:patient_id(
+          *,
+          users_extended:id(full_name, phone)
+        )
+      `)
+      .eq('doctor_id', doctorId)
+      .order('appointment_date', { ascending: true })
 
-  return { data, error }
+    if (error) {
+      console.error('[getDoctorAppointments] Query error:', error)
+    } else {
+      console.log('[getDoctorAppointments] Fetched appointments for doctor:', doctorId, 'Count:', data?.length || 0, 'Data:', data)
+    }
+
+    return { data, error }
+  } catch (err) {
+    console.error('[getDoctorAppointments] Exception:', err)
+    return { data: null, error: err }
+  }
 }
 
 export async function updateAppointmentStatus(appointmentId, status) {

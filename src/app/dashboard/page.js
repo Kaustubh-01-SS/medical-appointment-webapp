@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 
 export default function DashboardPage() {
+  const supabase = createClient()
   const [name, setName] = useState('')
   const [appointments, setAppointments] = useState([])
   const [loading, setLoading] = useState(true)
@@ -20,14 +21,14 @@ export default function DashboardPage() {
       const { data: auth } = await supabase.auth.getUser()
       if (!auth.user) return
 
-      // Get user name
-      const { data: user } = await supabase
-        .from('users')
-        .select('name')
+      // Get user name from users_extended
+      const { data: profile } = await supabase
+        .from('users_extended')
+        .select('full_name')
         .eq('id', auth.user.id)
         .single()
 
-      setName(user?.name || 'User')
+      setName(profile?.full_name || auth.user.email?.split('@')[0] || 'User')
 
       // Get appointments
       const { data: appts } = await supabase

@@ -1,13 +1,15 @@
-import { createClient } from '@supabase/supabase-js'
+/**
+ * SUPABASE CLIENT RE-EXPORT
+ * 
+ * This file provides a singleton Supabase client instance for backward compatibility.
+ * New code should prefer importing from @/lib/supabase/client or @/lib/supabase/server.
+ */
 
-export const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-  {
-    auth: {
-      persistSession: true,
-      storageKey: 'sb-auth-token',
-      storage: typeof window === 'undefined' ? undefined : window.localStorage,
-    },
-  }
-)
+import { getSupabaseClient } from '@/lib/supabase/client'
+
+// Export the singleton instance as 'supabase' and also as default
+export const supabase = getSupabaseClient()
+export default supabase
+
+// Also provide the createClient function if needed
+export { createClient } from '@/lib/supabase/client'
