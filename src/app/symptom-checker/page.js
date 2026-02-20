@@ -56,7 +56,7 @@ export default function SymptomCheckerPage() {
     <div className="min-h-screen bg-linear-to-br from-slate-900 to-black">
       {/* Navbar */}
       <nav className="flex justify-between items-center px-6 py-4 bg-slate-800/50 border-b border-slate-700">
-        <Link href="/dashboard" className="text-xl font-bold text-blue-400">
+        <Link href="/book" className="text-xl font-bold text-blue-400">
           ← Dashboard
         </Link>
         <h1 className="text-xl font-bold text-white">AI Symptom Checker</h1>
