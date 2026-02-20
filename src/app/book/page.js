@@ -628,6 +628,18 @@ export default function BookAppointmentPage() {
             </button>
           </div>
         </form>
+
+        {/* Symptom Checker CTA */}
+        <div className="mt-8 p-6 bg-gradient-to-r from-teal-50 to-blue-50 border border-teal-200 rounded-xl text-center">
+          <p className="text-gray-700 mb-3 font-medium">Not sure what's wrong? Try our AI-powered symptom checker first.</p>
+          <button
+            type="button"
+            onClick={() => router.push('/symptom-checker')}
+            className="px-6 py-3 bg-gradient-to-r from-teal-600 to-blue-600 text-white rounded-lg font-semibold hover:opacity-90 transition"
+          >
+            🩺 Go to Symptom Checker
+          </button>
+        </div>
       </div>
     </div>
   )
