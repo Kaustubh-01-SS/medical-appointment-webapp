@@ -373,7 +373,7 @@ export default function BookAppointmentPage() {
                       type="text"
                       value={guestName}
                       onChange={(e) => setGuestName(e.target.value)}
-                      placeholder="John Doe"
+                      placeholder="Enter Name"
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200  text-gray-900"
                       required
                     />
@@ -385,7 +385,7 @@ export default function BookAppointmentPage() {
                       type="email"
                       value={guestEmail}
                       onChange={(e) => setGuestEmail(e.target.value)}
-                      placeholder="john@example.com"
+                      placeholder="user@gmail.com"
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200  text-gray-900"
                       required
                     />
@@ -397,7 +397,7 @@ export default function BookAppointmentPage() {
                       type="tel"
                       value={guestPhone}
                       onChange={(e) => setGuestPhone(e.target.value)}
-                      placeholder="+1 (555) 000-0000"
+                      placeholder="+91 00000-00000"
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-200 text-gray-900"
                       required
                     />
